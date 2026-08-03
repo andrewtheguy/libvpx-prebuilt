@@ -1,0 +1,19 @@
+# The Rust half of this repository: an FFI crate that links the prebuilt archives ./build.sh
+# produces, instead of asking every consumer to install libvpx or to run bindgen.
+#
+# Two members rather than one. The second is not a library at all — it is a *consumer*, built
+# and run by the pipeline on every target, because linking an archive into a binary that
+# executes and produces a decodable bitstream is a different claim from compiling a test.
+#
+# There is deliberately no safe-wrapper crate. libvpx's encoder has one shape per use — the
+# configuration is where all the decisions are — and a wrapper general enough for everyone
+# would be a worse fit for each of them than the raw calls. The project this was built for
+# keeps its own wrapper in one file.
+[workspace]
+members = ["crates/libvpx-prebuilt-sys", "crates/libvpx-e2e"]
+resolver = "2"
+
+[workspace.package]
+# Not libvpx's version — that is in libvpx.env, and a consumer pins this by git tag anyway.
+# This number moves when the *crates* change shape.
+version = "0.1.0"
