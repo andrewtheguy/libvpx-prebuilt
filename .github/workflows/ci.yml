@@ -32,10 +32,11 @@ jobs:
       - name: shellcheck
         run: |
           sudo apt-get update && sudo apt-get install -y shellcheck
-          # `source.sh` and `libvpx.env` are sourced, not run, and shellcheck is told so by the
-          # directives at the top of each. Passing every file in one invocation lets it follow
-          # them.
-          shellcheck build.sh sync-prebuilt.sh check-static.sh source.sh \
+          # `-x` so it *follows* the sourced files rather than reporting each one as unknown:
+          # `source.sh` and `libvpx.env` are sourced, never run, and the `# shellcheck source=`
+          # directives at each site say where they are. Without `-x` those directives are read
+          # and then ignored, which is an SC1091 per site and no checking of what they contain.
+          shellcheck -x build.sh sync-prebuilt.sh check-static.sh source.sh \
             crates/libvpx-prebuilt-sys/gen-bindings.sh
 
       - name: rustfmt
