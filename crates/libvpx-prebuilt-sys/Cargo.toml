@@ -1,0 +1,36 @@
+[package]
+name = "libvpx-prebuilt-sys"
+version.workspace = true
+edition = "2021"
+# 2021, not 2024, and no MSRV-raising syntax: this crate's whole job is to be linkable from
+# other people's projects, so it should not be the thing that forces a toolchain upgrade on any
+# of them.
+#
+# 1.77 rather than something older because bindgen writes the layout assertions in
+# src/bindings.rs with `std::mem::offset_of!`, which is where they stabilised. It is *not* 1.82:
+# that is what bindgen's default `--rust-target` would have cost, by emitting `unsafe extern "C"`
+# blocks, and gen-bindings.sh pins the target to 1.81 to keep it from doing so. This number is a
+# measurement of what the generated file needs, so check it after a bindgen bump.
+rust-version = "1.77"
+description = "Raw FFI for libvpx's VP9 encoder and decoder, linked from a prebuilt static archive — no configure, no assembler, no libclang"
+# A real SPDX identifier rather than a hand-written note: libvpx is BSD-3-Clause, and
+# it comes with Google's separate patent grant over the claims its own WebM implementations
+# necessarily infringe — see PATENTS at the repository root, which every archive also ships.
+# The grant is not an SPDX licence and cannot be expressed here, which is why it is a file.
+license = "BSD-3-Clause"
+repository = "https://github.com/andrewtheguy/libvpx-prebuilt"
+# Declared so that two crates linking libvpx into one binary is a cargo error rather than a
+# duplicate-symbol link error, and so consumers can read DEP_VPX_INCLUDE.
+links = "vpx"
+build = "build.rs"
+# git-only, deliberately: the archives are what makes this crate work and they are large binary
+# files that live on releases rather than in the crate.
+publish = false
+
+# `vpx_sys`, so a consumer writes `use vpx_sys::…` — short, and the same shape as the other
+# `*_sys` crates it sits beside in the project this was built for.
+[lib]
+name = "vpx_sys"
+path = "src/lib.rs"
+
+[dependencies]
