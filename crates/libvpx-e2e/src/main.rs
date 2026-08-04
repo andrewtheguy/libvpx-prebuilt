@@ -101,6 +101,7 @@ struct Pass {
     keyframes: usize,
     packets: usize,
     micros_per_frame: u128,
+    /// Mean absolute luma error, averaged over every frame the pass decoded.
     mae: f64,
 }
 
@@ -112,7 +113,11 @@ fn pass(q: u32) -> Pass {
     let mut bytes = 0usize;
     let mut keyframes = 0usize;
     let mut packets = 0usize;
-    let mut mae = 0.0f64;
+    // Summed over every decoded frame and averaged at the end. Keeping only the last frame's
+    // would make the assertions in `main` a statement about frame 29 — the point in the stream
+    // furthest from the keyframe, and the one whose error says least about the pass.
+    let mut mae_total = 0.0f64;
+    let mut decoded = 0usize;
     let mut source = Frame::new();
     let started = std::time::Instant::now();
 
@@ -148,10 +153,12 @@ fn pass(q: u32) -> Pass {
                 "frame {frame} keyframe={keyframe}: a keyframe happened where none was asked \
                  for, or an asked-for one did not"
             );
-            mae = dec.decode(data, &source);
+            mae_total += dec.decode(data, &source);
+            decoded += 1;
         }
     }
     let micros_per_frame = started.elapsed().as_micros() / u128::from(FRAMES);
+    assert!(decoded > 0, "nothing decoded — there is no error to average");
 
     // (2) Exactly the two that were asked for: the stream's first, and the forced one.
     assert_eq!(
@@ -166,7 +173,7 @@ fn pass(q: u32) -> Pass {
         keyframes,
         packets,
         micros_per_frame,
-        mae,
+        mae: mae_total / decoded as f64,
     }
 }
 

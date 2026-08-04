@@ -244,9 +244,10 @@ jobs:
           ## Licensing
 
           libvpx is **BSD-3-Clause** with Google's separate **PATENTS** grant, both shipped in
-          every archive and at the repository root. That combination is the entire reason to
-          prefer VP9 over H.264 in software that has to run in a browser: it is a codec a stock
-          Chromium build carries.
+          every archive and at the repository root. The grant covers the patent claims Google
+          necessarily infringes in the WebM implementations it distributes, does not extend to
+          claims infringed only by modifications, and terminates on a patent suit over WebM.
+          Worth reading as written rather than summarised.
           EOF
           gh release edit "$TAG" --notes-file notes.md
 

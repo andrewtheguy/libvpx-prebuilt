@@ -196,9 +196,9 @@ cp -R "$out/prefix/include" "$out/include"
 # `vpx.pc` names the build machine's prefix, which is actively misleading sitting inside a
 # relocatable tarball — nothing consuming this points pkg-config at it.
 rm -rf "$out/include/../lib/pkgconfig" "$out/prefix"
-# libvpx's own licence and Google's patent grant, from the same verified checkout. This
-# licence is the whole reason this repository exists — a BSD-3-Clause codec with a patent
-# grant is what a browser can carry and H.264 cannot — so shipping it is not optional.
+# libvpx's own licence and Google's patent grant, from the same verified checkout. Both travel
+# with the archive rather than being left behind in the source tree: whoever links this
+# redistributes libvpx, and BSD-3-Clause requires the notice to go with it.
 cp "$src/LICENSE" "$src/PATENTS" "$out/include/"
 
 # ---------------------------------------------------------------- verify
@@ -213,7 +213,14 @@ entry_points='vpx_codec_vp9_cx vpx_codec_vp9_dx vpx_codec_enc_init_ver
               vpx_codec_dec_init_ver vpx_codec_decode vpx_codec_get_frame
               vpx_img_wrap vpx_img_free vpx_codec_version_str vpx_codec_error_detail'
 
-symbols="$(nm --defined-only "$out/lib/$lib_name" 2>/dev/null || true)"
+# No `2>/dev/null || true` on this: an nm that cannot read the archive would produce an empty
+# symbol list, and an empty symbol list makes every check below report a *missing* entry point.
+# That is a measurement failure wearing the costume of a build failure, so it stops here and
+# nm's own complaint is left on stderr to say why.
+symbols="$(nm --defined-only "$out/lib/$lib_name")" || {
+  echo "nm could not read $out/lib/$lib_name — nothing below was measured" >&2
+  exit 1
+}
 for symbol in $entry_points; do
   # A here-string rather than `printf … | grep -q`: under `set -o pipefail`, grep -q exits on
   # the first match, the writer takes SIGPIPE, and the pipeline reports 141 — so a *found*
@@ -265,14 +272,32 @@ echo "   $simd_evidence"
 # Which runtime libraries this archive needs — measured, not assumed, because build.rs reads
 # both answers out of the MANIFEST and emits link flags from them.
 echo ">> measuring the runtime requirements"
-undefined="$(nm --undefined-only "$out/lib/$lib_name" 2>/dev/null | awk '{print $NF}' | sort -u || true)"
+# Again with nm's failure kept loud, and for a sharper reason than above: "no undefined libm
+# symbols" is a *legitimate* answer that goes into the MANIFEST as `libm none`, and build.rs
+# then emits no `-lm`. An nm that failed silently produces the same empty list, so a masked
+# error here does not fail the build — it ships a MANIFEST that says the archive needs nothing.
+undefined_raw="$(nm --undefined-only "$out/lib/$lib_name")" || {
+  echo "nm could not read $out/lib/$lib_name — the runtime requirements were not measured" >&2
+  exit 1
+}
+undefined="$(awk '{print $NF}' <<<"$undefined_raw" | sort -u)"
 
+# The greps below are the one place where "found nothing" is an answer rather than a fault, so
+# they accept exit 1 and nothing else: exit 2 is grep saying it could not do the search, which
+# is indistinguishable from a match-free archive if it is thrown away.
+#
 # libm. libvpx's VP9 rate control uses pow, log and exp, so this is expected to be `required`
 # — and it is what makes the difference between a Linux consumer linking `-lm` and a page of
 # undefined symbols. On macOS libm is part of libSystem and no flag is needed, which is why
 # build.rs reads this *and* the target.
-libm_symbols="$(grep -E '^_?(pow|exp|log|logf|log2|sqrt|floor|ceil|fabs|atan2?|sin|cos|round|fmod)$' \
-  <<<"$undefined" | tr '\n' ' ' | sed 's/ $//' || true)"
+status=0
+libm_matches="$(grep -E '^_?(pow|exp|log|logf|log2|sqrt|floor|ceil|fabs|atan2?|sin|cos|round|fmod)$' \
+  <<<"$undefined")" || status=$?
+[ "$status" -le 1 ] || {
+  echo "grep failed ($status) while measuring libm — the requirement is unknown, not absent" >&2
+  exit 1
+}
+libm_symbols="$(tr '\n' ' ' <<<"$libm_matches" | sed 's/ *$//')"
 if [ -z "$libm_symbols" ]; then
   libm='none'
   echo "   libm: none"
@@ -284,8 +309,13 @@ fi
 # The C++ runtime. libvpx is C, and its one C++ file (`vp9/ratectrl_rtc.cc`) goes into a
 # *separate* `libvpxrc.a` that `make install` does not install — so the answer should be
 # `none`, which is a property worth keeping rather than assuming.
+status=0
 cxx_undefined="$(grep -E '^_?(_Zn[wa]|_Zd[la]|_ZN?St|__cxa_|__gxx_personality|_Unwind_)' \
-  <<<"$undefined" | sort -u || true)"
+  <<<"$undefined")" || status=$?
+[ "$status" -le 1 ] || {
+  echo "grep failed ($status) while measuring the C++ runtime — unknown, not absent" >&2
+  exit 1
+}
 if [ -z "$cxx_undefined" ]; then
   cxx_runtime='none'
   echo "   cxx_runtime: none — the archive needs no libstdc++/libc++"

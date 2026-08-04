@@ -7,10 +7,11 @@ needs a build system at all.
 vpx-sys = { package = "libvpx-prebuilt-sys", git = "https://github.com/andrewtheguy/libvpx-prebuilt", tag = "v1.16.0-…" }
 ```
 
-No assembler, no `configure`, no cmake, no pkg-config, no libclang, and no `LIBVPX_*`
-environment variables — not in a Dockerfile, not in a packaging script, not in CI. `build.rs`
-downloads the archive for its target from this repository's latest release, checks it, and emits
-the link flags.
+No assembler, no `configure`, no cmake, no pkg-config, no libclang, and nothing to set in the
+environment — not in a Dockerfile, not in a packaging script, not in CI. `build.rs` downloads
+the archive for its target from this repository's latest release, checks it, and emits the link
+flags. There is one variable, `LIBVPX_PREBUILT_DIR`, and it is an opt-in override for an archive
+you built yourself ([below](#local-loop)); the default path needs none.
 
 That is the whole point. The alternatives all move work onto every consumer:
 
@@ -95,16 +96,21 @@ it, and what CI asserts instead is that the kernels are in there.
 ## Local loop
 
 ```sh
-./build.sh macos-arm64          # -> dist/macos-arm64/{lib,include,MANIFEST}
+./build.sh <target>             # -> dist/<target>/{lib,include,MANIFEST}
 ./sync-prebuilt.sh              # -> crates/libvpx-prebuilt-sys/prebuilt/, what cargo will link
 cargo run --release -p libvpx-e2e
 ./check-static.sh target/release/libvpx-e2e
 ```
 
+`<target>` is the one this machine *is* — `macos-arm64` on Apple silicon, `linux-x86_64` or
+`linux-aarch64` on Linux. `./build.sh` does not cross-compile, because libvpx's own `configure`
+targets the machine it runs on; the other two are a `workflow_dispatch` on **Build libvpx** away.
+
 `./sync-prebuilt.sh --fetch` pulls the latest release's archives instead, for working offline
-afterwards or for a target this machine cannot build. `LIBVPX_PREBUILT_DIR=/prefix` overrides
-everything with an archive you built yourself — it is the escape hatch for an unsupported target,
-for VP8, or for a non-realtime build, and `build.rs` warns that nothing about it was checked.
+afterwards or for a target this machine cannot build. `LIBVPX_PREBUILT_DIR=/prefix` is the one
+variable a consumer ever sets, and it is never required: it points `build.rs` at an archive you
+built yourself instead of at a downloaded one — the escape hatch for an unsupported target, for
+VP8, or for a non-realtime build — and `build.rs` warns that nothing about it was checked.
 
 ## Bootstrapping
 
@@ -127,6 +133,8 @@ binary asserts they agree, which is how a system library winning the link would 
 ## Licensing
 
 libvpx is **BSD-3-Clause** with Google's separate **PATENTS** grant — both shipped in every
-archive and at the repository root. That combination is the entire reason to prefer VP9 over
-H.264 in software that has to run in a browser: it is a codec a stock Chromium build carries, and
-H.264 is not.
+archive and at the repository root. The grant is narrow and worth reading as written rather than
+summarised: it covers the patent claims Google necessarily infringes in the WebM implementations
+it distributes, it does not extend to claims infringed only by modifications, and it terminates
+on a patent suit over WebM. Whether that is enough for a given product is a question for whoever
+ships it; this repository's job is to put both files where they can be read.

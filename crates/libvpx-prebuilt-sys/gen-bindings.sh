@@ -57,7 +57,14 @@ generate() {
   # codes are C enums that its own API passes as `int`, and several — `vpx_codec_err_t` in
   # particular — are compared against values a future libvpx may extend. A Rust enum with an
   # unlisted discriminant is undefined behaviour; a constant is a number.
+  #
+  # `--rust-target` pinned for the same reason the bindgen version is, and it is the one flag
+  # that decides this crate's MSRV: bindgen defaults to the newest Rust it knows about (1.82 as
+  # of 0.72.1), and from 1.82 it emits `unsafe extern "C" { … }` blocks, which do not parse on
+  # an older compiler. Naming 1.81 keeps the declared `rust-version` a property of this file
+  # rather than of whichever bindgen the generating machine had.
   bindgen wrapper.h \
+    --rust-target 1.81 \
     --allowlist-file '.*/vpx/.*' \
     --default-enum-style consts \
     --no-doc-comments \
@@ -88,5 +95,14 @@ if [ "${1:-}" = "--check" ]; then
   exit 1
 fi
 
-generate > "$out"
+# Generated beside the target and renamed onto it, rather than redirected straight into it: a
+# `> "$out"` truncates the committed bindings *before* bindgen runs, so a failed generation —
+# a missing header, a clang that cannot parse one — leaves the crate with an empty bindings.rs
+# and no way back except git.
+tmp="$(mktemp "$out.XXXXXX")"
+trap 'rm -f "$tmp"' EXIT
+generate > "$tmp"
+chmod 644 "$tmp"
+mv "$tmp" "$out"
+trap - EXIT
 echo "wrote $out ($(wc -l < "$out" | tr -d ' ') lines from libvpx $LIBVPX_VERSION)"

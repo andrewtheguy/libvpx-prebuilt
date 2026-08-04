@@ -177,7 +177,7 @@ const _: () = {
     ["Offset of field: vpx_image_rect::h"][::std::mem::offset_of!(vpx_image_rect, h) - 12usize];
 };
 pub type vpx_image_rect_t = vpx_image_rect;
-unsafe extern "C" {
+extern "C" {
     pub fn vpx_img_alloc(
         img: *mut vpx_image_t,
         fmt: vpx_img_fmt_t,
@@ -186,7 +186,7 @@ unsafe extern "C" {
         align: ::std::os::raw::c_uint,
     ) -> *mut vpx_image_t;
 }
-unsafe extern "C" {
+extern "C" {
     pub fn vpx_img_wrap(
         img: *mut vpx_image_t,
         fmt: vpx_img_fmt_t,
@@ -196,7 +196,7 @@ unsafe extern "C" {
         img_data: *mut ::std::os::raw::c_uchar,
     ) -> *mut vpx_image_t;
 }
-unsafe extern "C" {
+extern "C" {
     pub fn vpx_img_set_rect(
         img: *mut vpx_image_t,
         x: ::std::os::raw::c_uint,
@@ -205,10 +205,10 @@ unsafe extern "C" {
         h: ::std::os::raw::c_uint,
     ) -> ::std::os::raw::c_int;
 }
-unsafe extern "C" {
+extern "C" {
     pub fn vpx_img_flip(img: *mut vpx_image_t);
 }
-unsafe extern "C" {
+extern "C" {
     pub fn vpx_img_free(img: *mut vpx_image_t);
 }
 pub const vpx_codec_err_t_VPX_CODEC_OK: vpx_codec_err_t = 0;
@@ -291,37 +291,37 @@ pub const vpx_bit_depth_VPX_BITS_10: vpx_bit_depth = 10;
 pub const vpx_bit_depth_VPX_BITS_12: vpx_bit_depth = 12;
 pub type vpx_bit_depth = ::std::os::raw::c_uint;
 pub use self::vpx_bit_depth as vpx_bit_depth_t;
-unsafe extern "C" {
+extern "C" {
     pub fn vpx_codec_version() -> ::std::os::raw::c_int;
 }
-unsafe extern "C" {
+extern "C" {
     pub fn vpx_codec_version_str() -> *const ::std::os::raw::c_char;
 }
-unsafe extern "C" {
+extern "C" {
     pub fn vpx_codec_version_extra_str() -> *const ::std::os::raw::c_char;
 }
-unsafe extern "C" {
+extern "C" {
     pub fn vpx_codec_build_config() -> *const ::std::os::raw::c_char;
 }
-unsafe extern "C" {
+extern "C" {
     pub fn vpx_codec_iface_name(iface: *const vpx_codec_iface) -> *const ::std::os::raw::c_char;
 }
-unsafe extern "C" {
+extern "C" {
     pub fn vpx_codec_err_to_string(err: vpx_codec_err_t) -> *const ::std::os::raw::c_char;
 }
-unsafe extern "C" {
+extern "C" {
     pub fn vpx_codec_error(ctx: *const vpx_codec_ctx_t) -> *const ::std::os::raw::c_char;
 }
-unsafe extern "C" {
+extern "C" {
     pub fn vpx_codec_error_detail(ctx: *const vpx_codec_ctx_t) -> *const ::std::os::raw::c_char;
 }
-unsafe extern "C" {
+extern "C" {
     pub fn vpx_codec_destroy(ctx: *mut vpx_codec_ctx_t) -> vpx_codec_err_t;
 }
-unsafe extern "C" {
+extern "C" {
     pub fn vpx_codec_get_caps(iface: *const vpx_codec_iface) -> vpx_codec_caps_t;
 }
-unsafe extern "C" {
+extern "C" {
     pub fn vpx_codec_control_(
         ctx: *mut vpx_codec_ctx_t,
         ctrl_id: ::std::os::raw::c_int,
@@ -1263,7 +1263,7 @@ const _: () = {
         [::std::mem::offset_of!(vpx_svc_parameters, loopfilter_ctrl) - 244usize];
 };
 pub type vpx_svc_extra_cfg_t = vpx_svc_parameters;
-unsafe extern "C" {
+extern "C" {
     pub fn vpx_codec_enc_init_ver(
         ctx: *mut vpx_codec_ctx_t,
         iface: *const vpx_codec_iface,
@@ -1272,7 +1272,7 @@ unsafe extern "C" {
         ver: ::std::os::raw::c_int,
     ) -> vpx_codec_err_t;
 }
-unsafe extern "C" {
+extern "C" {
     pub fn vpx_codec_enc_init_multi_ver(
         ctx: *mut vpx_codec_ctx_t,
         iface: *const vpx_codec_iface,
@@ -1283,24 +1283,24 @@ unsafe extern "C" {
         ver: ::std::os::raw::c_int,
     ) -> vpx_codec_err_t;
 }
-unsafe extern "C" {
+extern "C" {
     pub fn vpx_codec_enc_config_default(
         iface: *const vpx_codec_iface,
         cfg: *mut vpx_codec_enc_cfg_t,
         usage: ::std::os::raw::c_uint,
     ) -> vpx_codec_err_t;
 }
-unsafe extern "C" {
+extern "C" {
     pub fn vpx_codec_enc_config_set(
         ctx: *mut vpx_codec_ctx_t,
         cfg: *const vpx_codec_enc_cfg_t,
     ) -> vpx_codec_err_t;
 }
-unsafe extern "C" {
+extern "C" {
     pub fn vpx_codec_get_global_headers(ctx: *mut vpx_codec_ctx_t) -> *mut vpx_fixed_buf_t;
 }
 pub type vpx_enc_deadline_t = ::std::os::raw::c_ulong;
-unsafe extern "C" {
+extern "C" {
     pub fn vpx_codec_encode(
         ctx: *mut vpx_codec_ctx_t,
         img: *const vpx_image_t,
@@ -1310,7 +1310,7 @@ unsafe extern "C" {
         deadline: vpx_enc_deadline_t,
     ) -> vpx_codec_err_t;
 }
-unsafe extern "C" {
+extern "C" {
     pub fn vpx_codec_set_cx_data_buf(
         ctx: *mut vpx_codec_ctx_t,
         buf: *const vpx_fixed_buf_t,
@@ -1318,13 +1318,13 @@ unsafe extern "C" {
         pad_after: ::std::os::raw::c_uint,
     ) -> vpx_codec_err_t;
 }
-unsafe extern "C" {
+extern "C" {
     pub fn vpx_codec_get_cx_data(
         ctx: *mut vpx_codec_ctx_t,
         iter: *mut vpx_codec_iter_t,
     ) -> *const vpx_codec_cx_pkt_t;
 }
-unsafe extern "C" {
+extern "C" {
     pub fn vpx_codec_get_preview_frame(ctx: *mut vpx_codec_ctx_t) -> *const vpx_image_t;
 }
 #[repr(C)]
@@ -1402,7 +1402,7 @@ const _: () = {
         [::std::mem::offset_of!(vpx_codec_dec_cfg, h) - 8usize];
 };
 pub type vpx_codec_dec_cfg_t = vpx_codec_dec_cfg;
-unsafe extern "C" {
+extern "C" {
     pub fn vpx_codec_dec_init_ver(
         ctx: *mut vpx_codec_ctx_t,
         iface: *const vpx_codec_iface,
@@ -1411,7 +1411,7 @@ unsafe extern "C" {
         ver: ::std::os::raw::c_int,
     ) -> vpx_codec_err_t;
 }
-unsafe extern "C" {
+extern "C" {
     pub fn vpx_codec_peek_stream_info(
         iface: *const vpx_codec_iface,
         data: *const u8,
@@ -1419,13 +1419,13 @@ unsafe extern "C" {
         si: *mut vpx_codec_stream_info_t,
     ) -> vpx_codec_err_t;
 }
-unsafe extern "C" {
+extern "C" {
     pub fn vpx_codec_get_stream_info(
         ctx: *mut vpx_codec_ctx_t,
         si: *mut vpx_codec_stream_info_t,
     ) -> vpx_codec_err_t;
 }
-unsafe extern "C" {
+extern "C" {
     pub fn vpx_codec_decode(
         ctx: *mut vpx_codec_ctx_t,
         data: *const u8,
@@ -1434,7 +1434,7 @@ unsafe extern "C" {
         deadline: ::std::os::raw::c_long,
     ) -> vpx_codec_err_t;
 }
-unsafe extern "C" {
+extern "C" {
     pub fn vpx_codec_get_frame(
         ctx: *mut vpx_codec_ctx_t,
         iter: *mut vpx_codec_iter_t,
@@ -1443,7 +1443,7 @@ unsafe extern "C" {
 pub type vpx_codec_put_frame_cb_fn_t = ::std::option::Option<
     unsafe extern "C" fn(user_priv: *mut ::std::os::raw::c_void, img: *const vpx_image_t),
 >;
-unsafe extern "C" {
+extern "C" {
     pub fn vpx_codec_register_put_frame_cb(
         ctx: *mut vpx_codec_ctx_t,
         cb: vpx_codec_put_frame_cb_fn_t,
@@ -1458,14 +1458,14 @@ pub type vpx_codec_put_slice_cb_fn_t = ::std::option::Option<
         update: *const vpx_image_rect_t,
     ),
 >;
-unsafe extern "C" {
+extern "C" {
     pub fn vpx_codec_register_put_slice_cb(
         ctx: *mut vpx_codec_ctx_t,
         cb: vpx_codec_put_slice_cb_fn_t,
         user_priv: *mut ::std::os::raw::c_void,
     ) -> vpx_codec_err_t;
 }
-unsafe extern "C" {
+extern "C" {
     pub fn vpx_codec_set_frame_buffer_functions(
         ctx: *mut vpx_codec_ctx_t,
         cb_get: vpx_get_frame_buffer_cb_fn_t,
@@ -1539,16 +1539,16 @@ const _: () = {
     ["Offset of field: vp9_ref_frame::img"][::std::mem::offset_of!(vp9_ref_frame, img) - 8usize];
 };
 pub type vp9_ref_frame_t = vp9_ref_frame;
-unsafe extern "C" {
+extern "C" {
     pub static mut vpx_codec_vp8_cx_algo: vpx_codec_iface_t;
 }
-unsafe extern "C" {
+extern "C" {
     pub fn vpx_codec_vp8_cx() -> *const vpx_codec_iface;
 }
-unsafe extern "C" {
+extern "C" {
     pub static mut vpx_codec_vp9_cx_algo: vpx_codec_iface_t;
 }
-unsafe extern "C" {
+extern "C" {
     pub fn vpx_codec_vp9_cx() -> *const vpx_codec_iface;
 }
 pub const vp8e_enc_control_id_VP8E_SET_ROI_MAP: vp8e_enc_control_id = 8;
@@ -1822,16 +1822,16 @@ const _: () = {
         [::std::mem::offset_of!(vpx_svc_spatial_layer_sync, base_layer_intra_only) - 20usize];
 };
 pub type vpx_svc_spatial_layer_sync_t = vpx_svc_spatial_layer_sync;
-unsafe extern "C" {
+extern "C" {
     pub static mut vpx_codec_vp8_dx_algo: vpx_codec_iface_t;
 }
-unsafe extern "C" {
+extern "C" {
     pub fn vpx_codec_vp8_dx() -> *const vpx_codec_iface;
 }
-unsafe extern "C" {
+extern "C" {
     pub static mut vpx_codec_vp9_dx_algo: vpx_codec_iface_t;
 }
-unsafe extern "C" {
+extern "C" {
     pub fn vpx_codec_vp9_dx() -> *const vpx_codec_iface;
 }
 pub const vp8_dec_control_id_VP8D_GET_LAST_REF_UPDATES: vp8_dec_control_id = 256;

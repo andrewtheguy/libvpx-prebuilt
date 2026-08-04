@@ -16,8 +16,9 @@ sha256_of() {
 }
 
 # Leaves the checkout at build/libvpx-$LIBVPX_VERSION and echoes nothing; callers use that path
-# directly. Idempotent: an existing checkout at the pinned commit is reused, one at any other
-# commit is fetched forward, and a tree someone poked at by hand is reported rather than built.
+# directly. Idempotent: an existing checkout at the pinned commit is reused. One sitting at any
+# other commit is *not* moved onto the pin — it fails with the commit mismatch below and has to
+# be deleted — and a tree someone poked at by hand is reported rather than built.
 ensure_source() {
   local src="build/libvpx-${LIBVPX_VERSION}"
 
