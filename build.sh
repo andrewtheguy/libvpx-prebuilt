@@ -6,7 +6,7 @@
 #
 # Targets:
 #   macos-arm64      libvpx.a   (Apple silicon, deployment target 11.0)
-#   linux-x86_64     libvpx.a   (x86-64-v3 / Coffee Lake floor; AVX2 kernels dispatched at run time)
+#   linux-x86_64     libvpx.a   (x86-64 baseline; AVX2 kernels dispatched at run time)
 #   linux-aarch64    libvpx.a   (ARMv8-A baseline; NEON kernels dispatched at run time)
 #
 # Output: dist/<target>/{lib,include}/… plus a MANIFEST naming the version, the commit, the
@@ -114,27 +114,22 @@ case "$target" in
     ;;
   linux-x86_64)
     configure_args+=(--target=x86_64-linux-gcc)
-    # Coffee Lake as the floor — an Intel i5-8400T is the oldest CPU the projects linking
-    # this support, and the libopus these archives sit next to already presumes AVX2 at the
-    # same floor, so pre-AVX2 compatibility was never this archive's to preserve.
+    # **No CPU floor, deliberately.**
     #
-    # What the floor does and does not touch is decided by libvpx's own build. Its AVX2 and
-    # SSE kernels are hand-written assembly and intrinsics, and `build/make/Makefile` gives
+    # Naming one — `-march=x86-64-v3`, a Coffee Lake target, anything — would be a mistake here,
+    # and the reason is in libvpx's own build rather than in an opinion about floors. Its AVX2
+    # and SSE kernels are hand-written assembly and intrinsics, and `build/make/Makefile` gives
     # each of them its own flag (`%_avx2.c.o: CFLAGS += -mavx2`) no matter what the global
     # CFLAGS say; which one runs is then decided by cpuid at run time, through the function
-    # pointers rtcd.pl generates and `x86_simd_caps()` in vpx_ports/x86.h. Runtime detection
-    # is not something this configure line asks for — configure `soft_enable`s it for x86
-    # itself, and the resulting vpx_config.h carries CONFIG_RUNTIME_CPU_DETECT 1.
+    # pointers rtcd.pl generates and `x86_simd_caps()` in vpx_ports/x86.h. Runtime detection is
+    # not something this configure line asks for — configure `soft_enable`s it for x86 itself,
+    # and the resulting vpx_config.h carries CONFIG_RUNTIME_CPU_DETECT 1.
     #
-    # So `-march=x86-64-v3` cannot decide whether those kernels are compiled or called. What
-    # it reaches is everything rtcd does *not* dispatch — the bool coder, bitstream writing,
-    # rate control, mode decision — which the compiler may now autovectorize and give BMI2.
-    # -mtune=skylake because Coffee Lake *is* Skylake's microarchitecture, and tuning changes
-    # scheduling only, never which instructions are allowed. The verification below still
-    # asserts the AVX2 kernels are in the archive, which remains the property that matters
-    # most.
-    extra_cflags+=(-march=x86-64-v3 -mtune=skylake)
-    floor='x86-64-v3 / Coffee Lake (runtime CPU detection: sse2..avx2 kernels dispatched at run time)'
+    # So a floor cannot decide whether the kernels are compiled or whether they are called. All
+    # it could do is autovectorize the C fallbacks that exist for machines without those
+    # kernels — and cost the archive every pre-AVX2 machine in exchange. The verification below
+    # asserts the AVX2 kernels are in the archive, which is the property that actually matters.
+    floor='x86-64 baseline (runtime CPU detection: sse2..avx2 kernels dispatched at run time)'
     arflags=(ARFLAGS=-crsD)
     ;;
   linux-aarch64)
