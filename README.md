@@ -86,8 +86,8 @@ The build then asserts what it configured, rather than trusting it:
 
 ## No CPU floor, deliberately
 
-The other two prebuilt repositories name an x86-64-v3 / Coffee Lake floor and compile for it.
-This one names none, and that is a measurement rather than an oversight: libvpx dispatches its
+This repository names no floor above the x86-64 baseline, and that is a measurement rather
+than an oversight: libvpx dispatches its
 SSE2..AVX2 and NEON kernels through runtime CPU detection, so `-march=x86-64-v3` cannot decide
 whether they are called. It could only autovectorise the C fallbacks that exist *for the machines
 the floor would have excluded*. So the archive runs on any x86-64 and uses AVX2 where the CPU has
