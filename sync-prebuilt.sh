@@ -11,7 +11,9 @@
 #
 #   include/vpx/       libvpx's public headers, byte-identical to the pinned commit's. Text,
 #                      small, and reviewable — the opposite of a committed `.a`.
-#   src/bindings.rs    generated *from* those headers by gen-bindings.sh.
+#   src/bindings.rs    generated *from* those headers by gen-bindings.sh — and
+#   src/bindings_windows.rs, the same thing generated on Windows (see gen-bindings.sh for
+#   why MSVC needs its own).
 #
 # Which is a chain: libvpx.env pins a commit, the commit gates the checkout, the checkout is
 # where the headers come from, and the headers are where the bindings come from. It holds only
@@ -33,7 +35,7 @@ crate=crates/libvpx-prebuilt-sys
 prebuilt="$crate/prebuilt"
 
 # Every target build.sh knows how to make.
-targets=(macos-arm64 linux-x86_64 linux-aarch64)
+targets=(macos-arm64 linux-x86_64 linux-aarch64 windows-x86_64-msvc)
 
 # The headers `make install` installs for this configuration, at the paths they live at in the
 # source tree. Named here rather than globbed, because `vpx/` also holds `internal/` and the

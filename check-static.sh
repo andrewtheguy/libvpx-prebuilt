@@ -46,10 +46,18 @@ fi
 
 case "$(uname -s)" in
   Darwin) deps="$(otool -L "$bin" | tail -n +2 || true)" ;;
+  MINGW* | MSYS* | CYGWIN*)
+    # Windows, under an MSYS bash. `dumpbin /dependents` needs an MSVC environment this
+    # script does not set up, so the PE import table is read the crude way: a DLL a binary
+    # imports has its name stored, in ASCII, in the file. Enough to catch an accidental
+    # `vpx.dll` import — the mistake being looked for — and to see the C++ runtime's
+    # `msvcp140.dll` below.
+    deps="$(grep -aoiE '[a-z0-9_.-]+\.dll' "$bin" | sort -u || true)"
+    ;;
   *)      deps="$(ldd "$bin" 2>/dev/null || true)" ;;
 esac
 
-if vpx_deps="$(printf '%s\n' "$deps" | grep -iE 'libvpx')" && [ -n "$vpx_deps" ]; then
+if vpx_deps="$(printf '%s\n' "$deps" | grep -iE 'libvpx|(^|[^a-z])vpx(md|mt)?\.dll')" && [ -n "$vpx_deps" ]; then
   echo "   FAIL  dynamic dependency on libvpx:" >&2
   printf '           %s\n' "$vpx_deps" >&2
   fail=1
@@ -70,7 +78,9 @@ if [ -n "$manifest" ]; then
   cxx_runtime="$(sed -n 's/^cxx_runtime //p' "$manifest")"
   echo "   note  $(basename "$(dirname "$manifest")") MANIFEST says cxx_runtime: ${cxx_runtime:-<absent>}"
   if [ "$cxx_runtime" = "none" ]; then
-    if cxx_deps="$(printf '%s\n' "$deps" | grep -iE 'libstdc\+\+|libc\+\+')" && [ -n "$cxx_deps" ]; then
+    # `msvcp140.dll` is MSVC's C++ standard library; `vcruntime140.dll` beside it is the C
+    # runtime every /MD binary imports and is not evidence of C++.
+    if cxx_deps="$(printf '%s\n' "$deps" | grep -iE 'libstdc\+\+|libc\+\+|msvcp[0-9]+')" && [ -n "$cxx_deps" ]; then
       echo "   FAIL  the archive needs no C++ runtime, but the binary links one:" >&2
       printf '           %s\n' "$cxx_deps" >&2
       echo "         Nothing in this repository should emit -lstdc++/-lc++; check whether" >&2

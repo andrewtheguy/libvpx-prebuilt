@@ -8,6 +8,7 @@
 #   macos-arm64      libvpx.a   (Apple silicon, deployment target 11.0)
 #   linux-x86_64     libvpx.a   (x86-64 baseline; AVX2 kernels dispatched at run time)
 #   linux-aarch64    libvpx.a   (ARMv8-A baseline; NEON kernels dispatched at run time)
+#   windows-x86_64-msvc  vpx.lib  (x86-64 baseline, AVX2 dispatched at run time; dynamic CRT)
 #
 # Output: dist/<target>/{lib,include}/… plus a MANIFEST naming the version, the commit, the
 # checksum, the configure line, the CPU floor and — measured rather than assumed — whether the
@@ -20,9 +21,13 @@
 # with libvpx's own build system, is exactly what frees every *consumer* from needing an
 # assembler, a configure shell or a C toolchain at all.
 #
-# No Windows target. libvpx's build is `configure` + `make`, MSVC needs its own generator and
-# an assembler this script does not set up, and no consumer of this repository targets it.
-# Adding one is a real piece of work rather than a line in the case statement below.
+# The Windows target is libvpx's own MSVC path rather than a MinGW one: `configure` with a
+# `*-vs17` target writes a Visual Studio project, `make dist` generates it, and msbuild does
+# the compiling. It runs under an MSYS2 bash (make, perl, nasm) inside a VS developer
+# environment (msbuild), which is what GitHub's windows runner has and what
+# `ci/windows/provision.ps1` in the consuming project installs on a Windows CI box. A MinGW
+# `libvpx.a` would be the easier build and the wrong artifact: its objects reach into
+# libgcc and the MinGW CRT, which an MSVC link of a Rust binary does not carry.
 set -euo pipefail
 
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -92,6 +97,16 @@ arflags=()
 # place `ARFLAGS` can be set, since libvpx's Makefile assigns it with `=`.
 floor='unset'
 deployment_target=''
+# The archive's name follows the platform's convention — and, for the MSVC build, rustc's:
+# `static=vpx` on that target resolves to `vpx.lib`, never to `libvpx.a`.
+lib_name=libvpx.a
+# Set for the MSVC target, whose build and collect steps are not make's.
+msvs=0
+# A path as a native Windows program reads it — `C:/…` under MSYS2, where llvm-nm, llvm-readobj
+# and msbuild are native executables and get the archive's path spelled for them rather than
+# through MSYS2's argument conversion, which the msbuild call below turns off for its `-p:`
+# options. Identity everywhere else.
+np() { if [ "$msvs" = 1 ]; then cygpath -m "$1"; else printf '%s\n' "$1"; fi; }
 
 case "$target" in
   macos-arm64)
@@ -138,6 +153,20 @@ case "$target" in
     floor='armv8-a (runtime CPU detection: neon/dotprod/i8mm/sve dispatched at run time)'
     arflags=(ARFLAGS=-crsD)
     ;;
+  windows-x86_64-msvc)
+    # `vs17` is the newest toolset family libvpx 1.16's configure knows (VS 2022's v143); the
+    # VS 2026 build tools open the generated project as their own, which is what msbuild is
+    # asked to do below. The same runtime CPU detection as linux-x86_64 — configure
+    # `soft_enable`s it for x86 whatever the generator — so the floor is the same too.
+    configure_args+=(--target=x86_64-win64-vs17)
+    # **No `--enable-static-msvcrt`.** Rust's MSVC targets link the dynamic CRT, and an archive
+    # built against the static one fails the final link with the mismatch that costs an
+    # afternoon. The generator names the archive after this choice — `vpxmd.lib`, `md` for
+    # the dynamic CRT — and the collect step reads that name as evidence before renaming.
+    floor='x86-64 baseline (runtime CPU detection: sse2..avx2 kernels dispatched at run time)'
+    lib_name=vpx.lib
+    msvs=1
+    ;;
   *)
     echo "unknown target: $target" >&2
     exit 1
@@ -148,7 +177,7 @@ esac
 # configure prints a note, the build succeeds, and the archive silently loses every SSE and
 # AVX2 kernel. That is exactly the failure this repository exists to make loud, so it is
 # checked here and asserted again on the finished archive.
-if [ "$target" = "linux-x86_64" ]; then
+if [ "$target" = "linux-x86_64" ] || [ "$target" = "windows-x86_64-msvc" ]; then
   if command -v nasm >/dev/null 2>&1; then
     configure_args+=(--as=nasm)
   elif command -v yasm >/dev/null 2>&1; then
@@ -183,31 +212,124 @@ mkdir -p "build/$target"
 echo ">> configuring libvpx ${LIBVPX_VERSION} for $target"
 (cd "build/$target" && "$src/configure" --prefix="$out/prefix" "${configure_args[@]}")
 
-echo ">> building"
-make -C "build/$target" -j"$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 4)" "${arflags[@]+"${arflags[@]}"}"
-make -C "build/$target" install >/dev/null
-
-# ---------------------------------------------------------------- collect
-
-lib_name=libvpx.a
+jobs="$(nproc 2>/dev/null || getconf _NPROCESSORS_ONLN 2>/dev/null || echo 4)"
 mkdir -p "$out/lib"
-cp "$out/prefix/lib/$lib_name" "$out/lib/$lib_name"
-# The whole installed header directory, not a hand-picked list. libvpx's public surface *is*
-# `include/vpx/`, its own build decides what belongs there, and that set moves between
-# releases — 1.16 installs `vpx_ext_ratectrl.h` and `vpx_tpl.h`, which a list written against
-# an older tag would silently drop. Copying the directory and diffing it as a directory later
-# also catches an *extra* file, which matters because the bindings are generated from whatever
-# is sitting in it.
-cp -R "$out/prefix/include" "$out/include"
-# `vpx.pc` names the build machine's prefix, which is actively misleading sitting inside a
-# relocatable tarball — nothing consuming this points pkg-config at it.
-rm -rf "$out/include/../lib/pkgconfig" "$out/prefix"
+if [ "$msvs" = 1 ]; then
+  # The MSVC path, as vcpkg's libvpx port drives it. `make dist` is where the generator runs:
+  # it writes `vpx.vcxproj` (via build/make/gen_msvs_vcxproj.sh) and a dist tree holding the
+  # public headers, and compiles nothing. msbuild then does what make does elsewhere.
+  echo ">> generating the Visual Studio project"
+  make -C "build/$target" dist
+  project="$(find "build/$target" -maxdepth 1 -name vpx.vcxproj)"
+  [ -n "$project" ] || { echo "make dist wrote no vpx.vcxproj under build/$target" >&2; exit 1; }
+  echo ">> building with msbuild"
+  command -v msbuild.exe >/dev/null 2>&1 || {
+    echo "msbuild.exe is not on PATH — run this from a VS developer environment" >&2
+    exit 1
+  }
+  # The toolset is the *installed* one, not the one the generator wrote. libvpx's `vs17` target
+  # stamps `<PlatformToolset>v143</PlatformToolset>` — Visual Studio 2022's — into the project,
+  # and msbuild refuses to build it on a machine whose Build Tools are a later release (measured:
+  # MSB8020 on VS 2026, whose toolset is v145). Read off msbuild's own VC directory: the one
+  # `PlatformToolsets` entry for x64 is what this machine can build with, and on a machine with
+  # several the newest is the one the developer environment put on PATH.
+  # Walked up from msbuild.exe rather than a fixed number of `..`: it sits in `MSBuild/Current/Bin`
+  # or `MSBuild/Current/Bin/amd64` depending on the developer environment's host architecture,
+  # and `MSBuild/Microsoft/VC` is the first ancestor's child of that name either way.
+  msbuild_vc="$(dirname "$(cygpath -u "$(command -v msbuild.exe)")")"
+  while [ "$msbuild_vc" != / ] && [ ! -d "$msbuild_vc/Microsoft/VC" ]; do
+    msbuild_vc="$(dirname "$msbuild_vc")"
+  done
+  msbuild_vc="$msbuild_vc/Microsoft/VC"
+  toolset="$(find "$msbuild_vc" -mindepth 5 -maxdepth 5 -type d -path '*/Platforms/x64/PlatformToolsets/v[0-9]*' \
+    -printf '%f\n' | sort -V | tail -1)"
+  [ -n "$toolset" ] || {
+    echo "no x64 platform toolset under $msbuild_vc — is this a VS developer environment?" >&2
+    exit 1
+  }
+  echo "   platform toolset $toolset"
+  # **Whole-program optimisation off, and this is the most important option on the line.** The
+  # generated project's Release configuration says `<WholeProgramOptimization>true</…>`, which is
+  # `/GL`: every member of the resulting archive is then an *anonymous object* — an LTCG blob
+  # (magic `00 00 ff ff`) that only the exact MSVC linker that produced it can read. Measured:
+  # llvm-nm listed symbols for the 21 nasm-built members and nothing for the 131 compiled ones,
+  # so every entry-point check below would have failed, and a consumer on a different MSVC would
+  # have failed at link time with LNK1257. It is the same trap FreeRDP's cmake sets with IPO,
+  # asserted the same way below: real object code, or no archive.
+  #
+  # Conversion off for this one call: every argument is an option, none is a path.
+  (cd "build/$target" && MSYS2_ARG_CONV_EXCL='*' msbuild.exe vpx.vcxproj -nologo -m:"$jobs" -v:minimal \
+    -p:Configuration=Release -p:Platform=x64 -p:PlatformToolset="$toolset" \
+    -p:WholeProgramOptimization=false)
+
+  # ---------------------------------------------------------------- collect (MSVC)
+
+  # Exactly one Release archive, and its name is the CRT evidence: `vpxmd.lib` is what the
+  # generator writes for the dynamic CRT, `vpxmt.lib` for the static one that must not be here.
+  built="$(find "build/$target" -type f -name 'vpx*.lib' -path '*Release*')"
+  [ "$(printf '%s\n' "$built" | grep -c .)" -eq 1 ] || {
+    echo "expected exactly one Release vpx*.lib under build/$target, found:" >&2
+    printf '  %s\n' "$built" >&2
+    exit 1
+  }
+  [ "$(basename "$built")" = "vpxmd.lib" ] || {
+    echo "the archive is $(basename "$built"), not vpxmd.lib — this is not a dynamic-CRT build" >&2
+    exit 1
+  }
+  cp "$built" "$out/lib/$lib_name"
+  # The dist tree's `include/vpx` is what `make install` produces on the other targets: the
+  # whole public header set, decided by libvpx's own build (see the note below).
+  installed="$(find "build/$target" -type d -path '*/include/vpx')"
+  [ "$(printf '%s\n' "$installed" | grep -c .)" -eq 1 ] || {
+    echo "expected exactly one include/vpx under build/$target's dist tree, found:" >&2
+    printf '  %s\n' "$installed" >&2
+    exit 1
+  }
+  mkdir -p "$out/include"
+  cp -R "$installed" "$out/include/vpx"
+else
+  echo ">> building"
+  make -C "build/$target" -j"$jobs" "${arflags[@]+"${arflags[@]}"}"
+  make -C "build/$target" install >/dev/null
+
+  # ---------------------------------------------------------------- collect
+
+  cp "$out/prefix/lib/$lib_name" "$out/lib/$lib_name"
+  # The whole installed header directory, not a hand-picked list. libvpx's public surface *is*
+  # `include/vpx/`, its own build decides what belongs there, and that set moves between
+  # releases — 1.16 installs `vpx_ext_ratectrl.h` and `vpx_tpl.h`, which a list written against
+  # an older tag would silently drop. Copying the directory and diffing it as a directory later
+  # also catches an *extra* file, which matters because the bindings are generated from whatever
+  # is sitting in it.
+  cp -R "$out/prefix/include" "$out/include"
+  # `vpx.pc` names the build machine's prefix, which is actively misleading sitting inside a
+  # relocatable tarball — nothing consuming this points pkg-config at it.
+  rm -rf "$out/include/../lib/pkgconfig" "$out/prefix"
+fi
 # libvpx's own licence and Google's patent grant, from the same verified checkout. Both travel
 # with the archive rather than being left behind in the source tree: whoever links this
 # redistributes libvpx, and BSD-3-Clause requires the notice to go with it.
 cp "$src/LICENSE" "$src/PATENTS" "$out/include/"
 
 # ---------------------------------------------------------------- verify
+
+if [ "$msvs" = 1 ]; then
+  echo ">> verifying the archive holds object code, not LTCG blobs"
+  # Every member, not a sample: `/GL` is per translation unit and the asm members never had it,
+  # so the first member proves nothing. llvm-readobj prints one `Format:` line per object it
+  # can parse and an error per one it cannot; the count has to match the member count and the
+  # error stream has to be empty.
+  members="$(llvm-ar t "$(np "$out/lib/$lib_name")" | wc -l | tr -d ' ')"
+  headers="$(llvm-readobj --file-headers "$(np "$out/lib/$lib_name")" 2>"build/$target/readobj.err" | grep -c '^Format: COFF-x86-64$' || true)"
+  if [ -s "build/$target/readobj.err" ] || [ "$headers" != "$members" ]; then
+    echo "$lib_name: $headers of $members members are x86-64 COFF objects — the rest are not" >&2
+    echo "  object files (an LTCG '/GL' build writes anonymous objects only its own linker reads)." >&2
+    head -3 "build/$target/readobj.err" >&2 || true
+    exit 1
+  fi
+  rm -f "build/$target/readobj.err"
+  echo "   $members members, all COFF-x86-64"
+fi
 
 echo ">> verifying the entry points are in the archive"
 # The functions the crates above actually call. An archive that configured itself down to the
@@ -219,12 +341,31 @@ entry_points='vpx_codec_vp9_cx vpx_codec_vp9_dx vpx_codec_enc_init_ver
               vpx_codec_dec_init_ver vpx_codec_decode vpx_codec_get_frame
               vpx_img_wrap vpx_img_free vpx_codec_version_str vpx_codec_error_detail'
 
+# Which nm. GNU or Apple nm read their own platform's archives; a COFF `.lib` is read by
+# llvm-nm, which the LLVM installer puts on PATH on Windows and which prints the same shape
+# of listing. Either way the member headers (`name.o:` lines) are dropped so a symbol list is
+# only symbols.
+case "$target" in
+  windows-*)
+    command -v llvm-nm >/dev/null 2>&1 || {
+      echo "llvm-nm is not on PATH — install LLVM and put its bin directory on PATH" >&2
+      exit 1
+    }
+    nm_tool=llvm-nm
+    ;;
+  *) nm_tool="nm" ;;
+esac
+list_symbols() {
+  # $1: --defined-only or --undefined-only
+  "$nm_tool" "$1" "$(np "$out/lib/$lib_name")" | grep -v ':$'
+}
+
 # No `2>/dev/null || true` on this: an nm that cannot read the archive would produce an empty
 # symbol list, and an empty symbol list makes every check below report a *missing* entry point.
 # That is a measurement failure wearing the costume of a build failure, so it stops here and
 # nm's own complaint is left on stderr to say why.
-symbols="$(nm --defined-only "$out/lib/$lib_name")" || {
-  echo "nm could not read $out/lib/$lib_name — nothing below was measured" >&2
+symbols="$(list_symbols --defined-only)" || {
+  echo "$nm_tool could not read $out/lib/$lib_name — nothing below was measured" >&2
   exit 1
 }
 for symbol in $entry_points; do
@@ -256,7 +397,9 @@ echo "   no VP8, as configured"
 # when the assembler is absent, which is a thing that happens.
 echo ">> verifying the SIMD kernels are in the archive"
 case "$target" in
-  linux-x86_64)
+  # The same pattern on both: x64 COFF does not prefix C symbols with an underscore, so
+  # `vpx_…_avx2` reads the same in a `.lib` as in an ELF `.a`.
+  linux-x86_64 | windows-x86_64-msvc)
     kernel_pattern='_avx2$'
     kernel_name='AVX2'
     ;;
@@ -282,8 +425,8 @@ echo ">> measuring the runtime requirements"
 # symbols" is a *legitimate* answer that goes into the MANIFEST as `libm none`, and build.rs
 # then emits no `-lm`. An nm that failed silently produces the same empty list, so a masked
 # error here does not fail the build — it ships a MANIFEST that says the archive needs nothing.
-undefined_raw="$(nm --undefined-only "$out/lib/$lib_name")" || {
-  echo "nm could not read $out/lib/$lib_name — the runtime requirements were not measured" >&2
+undefined_raw="$(list_symbols --undefined-only)" || {
+  echo "$nm_tool could not read $out/lib/$lib_name — the runtime requirements were not measured" >&2
   exit 1
 }
 undefined="$(awk '{print $NF}' <<<"$undefined_raw" | sort -u)"
@@ -304,20 +447,37 @@ libm_matches="$(grep -E '^_?(pow|exp|log|logf|log2|sqrt|floor|ceil|fabs|atan2?|s
   exit 1
 }
 libm_symbols="$(tr '\n' ' ' <<<"$libm_matches" | sed 's/ *$//')"
-if [ -z "$libm_symbols" ]; then
-  libm='none'
-  echo "   libm: none"
-else
-  libm="required: $libm_symbols"
-  echo "   libm: $libm_symbols"
-fi
+case "$target" in
+  windows-*)
+    # The same three functions are undefined here too, and they are in the MSVC CRT that every
+    # Rust binary on the target already links: there is no `m.lib`, and build.rs emits no
+    # `-lm` for this target whatever this line says. `none` is the answer build.rs parses; the
+    # measurement is kept beside it in the log.
+    libm='none'
+    echo "   libm: none — ${libm_symbols:-nothing} undefined, and in the CRT"
+    ;;
+  *)
+    if [ -z "$libm_symbols" ]; then
+      libm='none'
+      echo "   libm: none"
+    else
+      libm="required: $libm_symbols"
+      echo "   libm: $libm_symbols"
+    fi
+    ;;
+esac
 
 # The C++ runtime. libvpx is C, and its one C++ file (`vp9/ratectrl_rtc.cc`) goes into a
 # *separate* `libvpxrc.a` that `make install` does not install — so the answer should be
 # `none`, which is a property worth keeping rather than assuming.
+# MSVC mangles differently: `??2@YA…` is operator new, `?…@std@@` anything in namespace std,
+# and the exception machinery is `__CxxFrameHandler`/`_CxxThrowException`.
+case "$target" in
+  windows-*) cxx_pattern='^(\?\?[23]@YA|\?.*@std@@|__CxxFrameHandler|_CxxThrowException)' ;;
+  *) cxx_pattern='^_?(_Zn[wa]|_Zd[la]|_ZN?St|__cxa_|__gxx_personality|_Unwind_)' ;;
+esac
 status=0
-cxx_undefined="$(grep -E '^_?(_Zn[wa]|_Zd[la]|_ZN?St|__cxa_|__gxx_personality|_Unwind_)' \
-  <<<"$undefined")" || status=$?
+cxx_undefined="$(grep -E "$cxx_pattern" <<<"$undefined")" || status=$?
 [ "$status" -le 1 ] || {
   echo "grep failed ($status) while measuring the C++ runtime — unknown, not absent" >&2
   exit 1
@@ -328,6 +488,32 @@ if [ -z "$cxx_undefined" ]; then
 else
   cxx_runtime="required: $(printf '%s' "$cxx_undefined" | tr '\n' ' ' | sed 's/ $//')"
   echo "   cxx_runtime: $cxx_runtime"
+fi
+
+# The CRT, read back off the archive rather than trusted from the flag. Every MSVC object
+# records the CRT it was compiled against as a `/DEFAULTLIB` directive, and `llvm-readobj`
+# prints them: `MSVCRT` is the dynamic one Rust links, `LIBCMT` the static one that would fail
+# the consumer's link. The archive name above already said `md`; this is the object saying it.
+crt='n/a'
+if [ "$msvs" = 1 ]; then
+  echo ">> verifying the CRT the objects name"
+  command -v llvm-readobj >/dev/null 2>&1 || {
+    echo "llvm-readobj is not on PATH — install LLVM to measure the CRT directives" >&2
+    exit 1
+  }
+  directives="$(llvm-readobj --coff-directives "$(np "$out/lib/$lib_name")" | grep -io 'DEFAULTLIB:"[A-Za-z0-9_]*"' | sort -u)"
+  grep -qi 'DEFAULTLIB:"MSVCRT"' <<<"$directives" || {
+    echo "no /DEFAULTLIB:MSVCRT directive in $lib_name — the objects do not name the dynamic CRT" >&2
+    printf '  %s\n' "$directives" >&2
+    exit 1
+  }
+  if grep -qi 'DEFAULTLIB:"LIBCMT' <<<"$directives"; then
+    echo "a /DEFAULTLIB:LIBCMT directive is in $lib_name — some object was built against the static CRT" >&2
+    printf '  %s\n' "$directives" >&2
+    exit 1
+  fi
+  crt='dynamic (MSVCRT)'
+  echo "   $crt, and no LIBCMT"
 fi
 
 # The deployment target, read back off the archive rather than trusted from the flag. A
@@ -362,6 +548,7 @@ echo "   $lib_sha"
   echo "cpu_floor $floor"
   echo "libm $libm"
   echo "cxx_runtime $cxx_runtime"
+  echo "crt $crt"
   echo "simd_evidence $simd_evidence"
   echo "configure_args ${configure_args[*]}"
 } > "$out/MANIFEST"
