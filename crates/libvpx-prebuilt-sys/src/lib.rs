@@ -37,6 +37,16 @@
 //! free memory the wrapper never allocated.
 
 // bindgen's own header already carries the allow attributes these names need.
+//
+// Two generated files, not one, and the split was measured rather than assumed. The
+// headers are libc-free and every `c_int`/`c_char` is an alias each target resolves for
+// itself — which is why one file covers macOS and both Linux architectures — but MSVC
+// differs in two things bindgen writes down as literals: `unsigned long` is 4 bytes, which
+// moves `vpx_codec_cx_pkt`'s `flags` from offset 32 to 28 in the layout assertions, and a
+// C enum is always `int`, where clang on the others makes an unsigned-valued one `unsigned`.
+// The first is an ABI fact the layout tests exist to catch; the second is only a type alias
+// but is what `--check` would otherwise report as drift on every run.
+#[cfg_attr(windows, path = "bindings_windows.rs")]
 mod bindings;
 
 pub use bindings::*;

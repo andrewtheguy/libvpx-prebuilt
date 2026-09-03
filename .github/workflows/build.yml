@@ -7,7 +7,9 @@ name: Build libvpx
 #
 # `workflow_dispatch` is the test loop and the bootstrap: the very first run of this repository's
 # pipeline has to be this workflow, because nothing can be downloaded from a release that does
-# not exist yet.
+# not exist yet. Windows is why the loop matters: it is the one target that cannot be built
+# anywhere but a Windows machine — Docker covers Linux and a Mac covers itself — so
+# `targets: windows` is how the MSVC archive gets exercised at all.
 #
 # `workflow_call` is release.yml and ci.yml. A failure anywhere in here — a build, the link test,
 # the e2e binary, `check-static.sh`, the reproducibility check — fails the caller's job, and for
@@ -19,7 +21,7 @@ on:
         description: "which targets to build and test"
         type: choice
         default: all
-        options: [all, x86_64, arm64]
+        options: [all, windows, x86_64, arm64]
   workflow_call:
     inputs:
       targets:
@@ -62,9 +64,10 @@ jobs:
           GROUP: ${{ inputs.targets || 'all' }}
         run: |
           all='[
-            {"target":"macos-arm64",   "runs-on":"macos-latest",    "group":"arm64"},
-            {"target":"linux-x86_64",  "runs-on":"ubuntu-24.04",    "group":"x86_64"},
-            {"target":"linux-aarch64", "runs-on":"ubuntu-24.04-arm","group":"arm64"}
+            {"target":"macos-arm64",         "runs-on":"macos-latest",    "group":"arm64"},
+            {"target":"linux-x86_64",        "runs-on":"ubuntu-24.04",    "group":"x86_64"},
+            {"target":"linux-aarch64",       "runs-on":"ubuntu-24.04-arm","group":"arm64"},
+            {"target":"windows-x86_64-msvc", "runs-on":"windows-latest",  "group":"windows"}
           ]'
           targets="$(jq -c --arg g "$GROUP" '[.[] | select($g == "all" or .group == $g)]' <<<"$all")"
           echo "$targets" | jq -r '.[].target' | sed 's/^/  /'
@@ -80,6 +83,13 @@ jobs:
       matrix:
         include: ${{ fromJSON(needs.plan.outputs.targets) }}
     runs-on: ${{ matrix.runs-on }}
+    # Every `run:` under bash, on the Windows runner too — there it is Git's bash, and only the
+    # steps marked `shell: msys2 {0}` (build.sh and the bindings check) run in the MSYS2 shell
+    # set up below. `path-type: inherit` is what lets that shell see the runner's cargo, msbuild
+    # and LLVM; the msys2 action's default would hide everything but its own tools.
+    defaults:
+      run:
+        shell: bash
     steps:
       - uses: actions/checkout@v5
 
@@ -92,7 +102,37 @@ jobs:
         if: matrix.target == 'linux-x86_64'
         run: sudo apt-get update && sudo apt-get install -y nasm
 
+      # Windows: libvpx's own MSVC path needs a bash with make and perl (configure and
+      # `make dist`, which writes the Visual Studio project), nasm, and msbuild — the last
+      # from a VS developer environment, which is what msvc-dev-cmd puts on PATH for every
+      # step after it. LLVM's llvm-nm and llvm-readobj are on the runner image already and
+      # are what build.sh reads the finished `.lib` with.
+      - name: Enter a VS developer environment
+        if: runner.os == 'Windows'
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+      - name: Set up the MSYS2 shell
+        if: runner.os == 'Windows'
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: MSYS
+          path-type: inherit
+          install: make perl nasm diffutils
+      - name: Show the Windows toolchain
+        if: runner.os == 'Windows'
+        shell: msys2 {0}
+        run: |
+          nasm -v; make --version | head -1; perl -v | sed -n 2p
+          msbuild.exe -version | tail -1
+          llvm-nm --version | sed -n 2p
+
       - name: Build ${{ matrix.target }}
+        if: runner.os != 'Windows'
+        run: ./build.sh ${{ matrix.target }}
+      - name: Build ${{ matrix.target }} (MSYS2 shell)
+        if: runner.os == 'Windows'
+        shell: msys2 {0}
         run: ./build.sh ${{ matrix.target }}
 
       # The half of the artifact the archive alone does not cover: whether Rust can *link* it.
@@ -115,8 +155,10 @@ jobs:
       # codec runs", and where a CPU floor would stop being a claim in a MANIFEST.
       - name: End to end — encode and decode in a real binary
         run: |
-          ./target/release/libvpx-e2e
-          ./check-static.sh target/release/libvpx-e2e
+          bin=target/release/libvpx-e2e
+          [ -f "$bin" ] || bin="$bin.exe"
+          "$bin"
+          ./check-static.sh "$bin"
 
       # And that the committed headers are the ones this artifact's own `make install`
       # produced — the membership half of the chain, which needs a built target to check and so
@@ -127,6 +169,22 @@ jobs:
           sudo apt-get install -y libclang-dev
           cargo install bindgen-cli --version 0.72.1 --locked
           ./sync-prebuilt.sh --check
+
+      # The same check on Windows is what keeps `bindings_windows.rs` honest: it is
+      # regenerated here against the Windows SDK's headers (libclang from the runner's LLVM)
+      # and must match the committed file, the way `plan` checks the other one on Linux.
+      # bindgen is installed from PowerShell, not the MSYS2 shell: there `/usr/bin/link`
+      # (coreutils) shadows MSVC's link.exe and every build script fails to link.
+      - name: Install bindgen (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: cargo install bindgen-cli --version 0.72.1 --locked
+      - name: The committed Windows bindings are what the headers say
+        if: runner.os == 'Windows'
+        shell: msys2 {0}
+        env:
+          LIBCLANG_PATH: 'C:\Program Files\LLVM\bin'
+        run: ./sync-prebuilt.sh --check
 
       - name: Show what was built
         run: cat dist/${{ matrix.target }}/MANIFEST

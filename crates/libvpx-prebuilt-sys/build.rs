@@ -52,7 +52,9 @@ fn main() {
 
     let (prefix, provenance) = resolve(&manifest, &target, &version);
     let lib_dir = prefix.join("lib");
-    let archive = "libvpx.a";
+    // MSVC's convention for a static archive, and the name rustc looks for on that target:
+    // `static=vpx` resolves to `vpx.lib` there and to `libvpx.a` everywhere else.
+    let archive = if target.contains("windows-msvc") { "vpx.lib" } else { "libvpx.a" };
     assert!(
         lib_dir.join(archive).exists(),
         "no {archive} in {} (from {provenance})\n\nLIBVPX_PREBUILT_DIR must name a prefix \
@@ -112,6 +114,12 @@ fn main() {
 fn link_libm(target: &str, manifest_text: Option<&str>, provenance: &str) {
     if target.contains("apple") {
         println!("cargo:info=libvpx needs libm, which is part of libSystem on this target");
+        return;
+    }
+    // The MSVC CRT that every Rust binary on that target already links carries `pow`, `exp`
+    // and `log`; there is no `m.lib` to name, and naming one is a link error.
+    if target.contains("windows") {
+        println!("cargo:info=libvpx needs libm, which is part of the CRT on this target");
         return;
     }
 
@@ -410,16 +418,19 @@ fn prebuilt_dir(target: &str) -> &'static str {
              LIBVPX_PREBUILT_DIR to a prefix holding your own libvpx.a, or add the target to \
              build.sh."
         ),
-        "x86_64-pc-windows-msvc" => panic!(
-            "no prebuilt libvpx for Windows: libvpx's build is configure + make and needs an \
-             assembler this repository's pipeline does not set up on Windows. Set \
-             LIBVPX_PREBUILT_DIR to a prefix holding your own vpx.lib, or add the target to \
-             build.sh — which is real work, not a line in a case statement."
+        // Built with MSVC against the dynamic CRT, which is what Rust's MSVC target links.
+        "x86_64-pc-windows-msvc" => "windows-x86_64-msvc",
+        "x86_64-pc-windows-gnu" => panic!(
+            "no prebuilt libvpx for the MinGW target: the Windows archive is an MSVC `vpx.lib` \
+             against the dynamic CRT, which a GNU-ABI link cannot use. Build with the \
+             x86_64-pc-windows-msvc target, or set LIBVPX_PREBUILT_DIR to a prefix holding \
+             your own libvpx.a."
         ),
         other => panic!(
             "no prebuilt libvpx for {other}. Supported: aarch64-apple-darwin, \
-             x86_64-unknown-linux-{{gnu,musl}}, aarch64-unknown-linux-{{gnu,musl}}. Set \
-             LIBVPX_PREBUILT_DIR to a prefix holding your own libvpx.a for anything else."
+             x86_64-unknown-linux-{{gnu,musl}}, aarch64-unknown-linux-{{gnu,musl}}, \
+             x86_64-pc-windows-msvc. Set LIBVPX_PREBUILT_DIR to a prefix holding your own \
+             libvpx.a for anything else."
         ),
     }
 }

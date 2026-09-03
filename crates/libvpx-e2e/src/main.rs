@@ -356,7 +356,9 @@ impl Encoder {
 
     /// Encode one frame, returning every packet it produced and whether each is a keyframe.
     fn encode(&mut self, frame: &Frame, force_keyframe: bool) -> Vec<(Vec<u8>, bool)> {
-        let flags = if force_keyframe { VPX_EFLAG_FORCE_KF as i64 } else { 0 };
+        // `vpx_enc_frame_flags_t` is a C `long`: 64 bits on Linux and macOS, 32 on Windows.
+        let flags: vpx_enc_frame_flags_t =
+            if force_keyframe { VPX_EFLAG_FORCE_KF as vpx_enc_frame_flags_t } else { 0 };
         // SAFETY: the planes outlive the call — `frame` is borrowed for it — and the strides are
         // the ones `vpx_img_wrap` computed for this exact width and height. Casting away const
         // is required by the C API, which does not modify the input image.

@@ -33,10 +33,11 @@ crates/libvpx-prebuilt-sys/      the FFI crate: committed headers, committed bin
 crates/libvpx-e2e/               a consumer that encodes and decodes, run on every target in CI
 ```
 
-Targets: `macos-arm64`, `linux-x86_64`, `linux-aarch64`. **No Windows** — libvpx's build is
-`configure` + `make`, MSVC needs its own generator and an assembler this pipeline does not set
-up, and no consumer of this repository targets it. Adding one is real work rather than a line in
-a case statement.
+Targets: `macos-arm64`, `linux-x86_64`, `linux-aarch64`, `windows-x86_64-msvc`. The Windows
+archive is `vpx.lib`, MSVC against the dynamic CRT (`/MD`), for `x86_64-pc-windows-msvc` only:
+libvpx's own `configure --target=x86_64-win64-vs17` under MSYS2 bash writes a Visual Studio
+project through `make dist`, and msbuild builds it inside a VS developer shell. No `-gnu`
+archive — a MinGW `.a` drags libgcc into an MSVC link.
 
 ## The chain
 

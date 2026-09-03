@@ -136,7 +136,7 @@ jobs:
           # Named here rather than discovered, so that a target silently missing from the matrix
           # is a failed release instead of a release somebody links against six months later and
           # finds nothing for their platform.
-          expected="macos-arm64 linux-x86_64 linux-aarch64"
+          expected="macos-arm64 linux-x86_64 linux-aarch64 windows-x86_64-msvc"
           for target in $expected; do
             dir="artifacts/libvpx-$target"
             [ -f "$dir/MANIFEST" ] || {
@@ -222,6 +222,17 @@ jobs:
 
           \`macos-arm64\` is built with a deployment target of **macOS 11.0**, verified by
           reading it back off the finished archive.
+
+          ## Windows
+
+          \`windows-x86_64-msvc\` is \`vpx.lib\`, built by libvpx's own MSVC path (its Visual
+          Studio generator and msbuild) against the **dynamic CRT** — the one Rust's
+          \`x86_64-pc-windows-msvc\` target links — and the build reads that back off the
+          objects' \`/DEFAULTLIB\` directives. It has its own committed bindings file,
+          because MSVC's \`unsigned long\` is four bytes and moves one field of
+          \`vpx_codec_cx_pkt\`; the layout assertions are what caught it. No libm line:
+          \`pow\`, \`exp\` and \`log\` are in the CRT. Not byte-reproducible — lib.exe stamps
+          its members — so this target's \`sha256(library)\` is not comparable across builds.
 
           ## Checking what you downloaded
 
