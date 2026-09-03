@@ -83,10 +83,10 @@ jobs:
       matrix:
         include: ${{ fromJSON(needs.plan.outputs.targets) }}
     runs-on: ${{ matrix.runs-on }}
-    # Every `run:` under bash, on the Windows runner too — on Windows it is the MSYS2 shell set
-    # up below, so one build.sh covers every target. `path-type: inherit` is what lets that
-    # shell see the runner's cargo, msbuild and LLVM; the msys2 action's default would hide
-    # everything but its own tools.
+    # Every `run:` under bash, on the Windows runner too — there it is Git's bash, and only the
+    # steps marked `shell: msys2 {0}` (build.sh and the bindings check) run in the MSYS2 shell
+    # set up below. `path-type: inherit` is what lets that shell see the runner's cargo, msbuild
+    # and LLVM; the msys2 action's default would hide everything but its own tools.
     defaults:
       run:
         shell: bash
@@ -173,14 +173,18 @@ jobs:
       # The same check on Windows is what keeps `bindings_windows.rs` honest: it is
       # regenerated here against the Windows SDK's headers (libclang from the runner's LLVM)
       # and must match the committed file, the way `plan` checks the other one on Linux.
+      # bindgen is installed from PowerShell, not the MSYS2 shell: there `/usr/bin/link`
+      # (coreutils) shadows MSVC's link.exe and every build script fails to link.
+      - name: Install bindgen (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: cargo install bindgen-cli --version 0.72.1 --locked
       - name: The committed Windows bindings are what the headers say
         if: runner.os == 'Windows'
         shell: msys2 {0}
         env:
           LIBCLANG_PATH: 'C:\Program Files\LLVM\bin'
-        run: |
-          cargo install bindgen-cli --version 0.72.1 --locked
-          ./sync-prebuilt.sh --check
+        run: ./sync-prebuilt.sh --check
 
       - name: Show what was built
         run: cat dist/${{ matrix.target }}/MANIFEST
