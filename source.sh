@@ -30,7 +30,9 @@ ensure_source() {
     # history, which is 30 MB instead of 500. The tag is only how the commit is *found*; the
     # assertion below is what decides whether it was the right one, so a tag moved upstream
     # fails here rather than shipping.
-    git clone --quiet --depth 1 --branch "v${LIBVPX_VERSION}" "$LIBVPX_REPO" "$src"
+    # LF whatever the host: Git for Windows checks out CRLF by default, and these headers are
+    # compared byte for byte against the committed (LF) copies.
+    git -c core.autocrlf=false -c core.eol=lf clone --quiet --depth 1 --branch "v${LIBVPX_VERSION}" "$LIBVPX_REPO" "$src"
   fi
 
   echo ">> verifying the checkout is ${LIBVPX_COMMIT}"
