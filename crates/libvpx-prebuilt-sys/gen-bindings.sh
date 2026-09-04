@@ -113,7 +113,7 @@ if [ "${1:-}" = "--check" ]; then
   tmp="$(mktemp)"
   trap 'rm -f "$tmp"' EXIT
   generate > "$tmp"
-  if diff -u "$out" "$tmp"; then
+  if diff -u --strip-trailing-cr "$out" "$tmp"; then
     echo "$out matches the committed libvpx $LIBVPX_VERSION headers"
     exit 0
   fi
