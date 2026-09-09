@@ -459,9 +459,7 @@ fn verify_download(sums: &Path, asset: &str, tarball: &Path, tag: &str) {
             let (hash, rest) = line.split_once(char::is_whitespace)?;
             (rest.trim().trim_start_matches("./") == asset).then_some(hash)
         })
-        .unwrap_or_else(|| {
-            panic!("SHA256SUMS on {tag} does not list {asset}:\n{text}")
-        });
+        .unwrap_or_else(|| panic!("SHA256SUMS on {tag} does not list {asset}:\n{text}"));
 
     let bytes = std::fs::read(tarball).expect("cannot read the downloaded archive");
     let actual = sha256_hex(&bytes);
