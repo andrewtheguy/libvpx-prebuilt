@@ -257,10 +257,31 @@ if [ "$msvs" = 1 ]; then
   # have failed at link time with LNK1257. It is the same trap FreeRDP's cmake sets with IPO,
   # asserted the same way below: real object code, or no archive.
   #
+  #
+  # **No debug information.** The generated project says nothing about it, and the C++ props
+  # then default every ClCompile to `/Zi` (`DebugInformationFormat` = `ProgramDatabase`): the
+  # symbols go to a PDB named after a static library's target, `vpxmd.pdb`, and every object in
+  # the archive records that it lives there. The collect step ships the archive alone, so a
+  # consumer's linker looks the PDB up beside its objects, finds nothing and warns LNK4099 once
+  # per member. This is a release archive and nothing was ever going to read those symbols.
+  # It is item metadata, not a property, so a `-p:` on the line cannot reach it; a props file
+  # the targets import last (`ForceImportBeforeCppTargets`) is the one hook msbuild gives a
+  # project it does not own, and the path is spelled natively because the conversion is off.
+  cat > "build/$target/release-only.props" <<'PROPS'
+<?xml version="1.0" encoding="utf-8"?>
+<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemDefinitionGroup>
+    <ClCompile>
+      <DebugInformationFormat>None</DebugInformationFormat>
+    </ClCompile>
+  </ItemDefinitionGroup>
+</Project>
+PROPS
+  release_only="$(np "$PWD/build/$target/release-only.props")"
   # Conversion off for this one call: every argument is an option, none is a path.
   (cd "build/$target" && MSYS2_ARG_CONV_EXCL='*' msbuild.exe vpx.vcxproj -nologo -m:"$jobs" -v:minimal \
     -p:Configuration=Release -p:Platform=x64 -p:PlatformToolset="$toolset" \
-    -p:WholeProgramOptimization=false)
+    -p:WholeProgramOptimization=false -p:ForceImportBeforeCppTargets="$release_only")
 
   # ---------------------------------------------------------------- collect (MSVC)
 
@@ -514,6 +535,18 @@ if [ "$msvs" = 1 ]; then
   fi
   crt='dynamic (MSVCRT)'
   echo "   $crt, and no LIBCMT"
+
+  # Debug information, read back off the archive the same way. An object compiled `/Zi` records
+  # the path of the PDB its symbols went to, and that file is not shipped: a consumer's linker
+  # looks it up beside the objects, finds nothing and warns LNK4099 once per member. The props
+  # file on the msbuild line above is what keeps that path out; this is the object saying so.
+  echo ">> verifying the objects name no PDB"
+  if grep -aqE '[A-Za-z0-9_:./\\-]+\.pdb' "$out/lib/$lib_name"; then
+    echo "$lib_name was compiled with debug information and names a PDB that is not shipped:" >&2
+    grep -aoE '[A-Za-z0-9_:./\\-]+\.pdb' "$out/lib/$lib_name" | sort -u >&2
+    exit 1
+  fi
+  echo "   none"
 fi
 
 # The deployment target, read back off the archive rather than trusted from the flag. A
