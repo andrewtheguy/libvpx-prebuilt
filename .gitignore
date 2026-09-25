@@ -15,7 +15,7 @@ Cargo.lock
 
 # Per-checkout notes for Claude Code: what this particular machine can and cannot build. All of
 # it is true of one developer's setup rather than of the project; anything that holds for
-# everyone belongs in a committed CLAUDE.md instead.
+# everyone belongs in the committed AGENTS.md instead.
 CLAUDE.local.md
 
 # Scratch for the Windows CI driver (ci/windows/remote.ps1 stages its upload here).

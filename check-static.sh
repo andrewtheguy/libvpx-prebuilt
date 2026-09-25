@@ -67,11 +67,23 @@ fi
 
 # What did build.sh measure for this target? Looked up rather than assumed, and skipped rather
 # than guessed when there is no MANIFEST to read — a check that invents its own expectation is
-# worse than one that says it did not run.
+# worse than one that says it did not run. **This** machine's target, by name: a tree copied to
+# a build box carries whatever other targets' caches were in it, and taking the last MANIFEST
+# found reported another target's measurement (libde265-prebuilt's arm64 run read x86_64's).
+case "$(uname -s)-$(uname -m)" in
+  Darwin-arm64) host_target=macos-arm64 ;;
+  Linux-x86_64) host_target=linux-x86_64 ;;
+  Linux-aarch64 | Linux-arm64) host_target=linux-aarch64 ;;
+  MINGW*-x86_64 | MSYS*-x86_64 | CYGWIN*-x86_64) host_target=windows-x86_64-msvc ;;
+  *) host_target=unknown ;;
+esac
 manifest=""
-for candidate in "$here"/dist/*/MANIFEST "$here"/crates/libvpx-prebuilt-sys/prebuilt/*/MANIFEST; do
-  [ -f "$candidate" ] || continue
-  manifest="$candidate"
+for candidate in "$here/dist/$host_target/MANIFEST" \
+                 "$here/crates/libvpx-prebuilt-sys/prebuilt/$host_target/MANIFEST"; do
+  if [ -f "$candidate" ]; then
+    manifest="$candidate"
+    break
+  fi
 done
 
 if [ -n "$manifest" ]; then
